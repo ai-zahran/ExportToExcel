@@ -1,0 +1,14 @@
+{
+  "name": "ExportToExcel",
+  "version": "1.0.0",
+  "description": "A Tableau extension to export data in selected sheets to Excel.",
+  "main": "index.js",
+  "repository": "https://github.com/ai-zahran/ExportToExcel.git",
+  "author": "Ahmed Zahran <ahmed.ismail.zahran@gmail.com>",
+  "license": "MIT",
+  "dependencies": {
+    "bootstrap": "^4.5.0",
+    "jquery": "^3.5.1",
+    "xlsx": "^0.16.1"
+  }
+}
