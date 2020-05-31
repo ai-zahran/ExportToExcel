@@ -57,7 +57,7 @@
 
     function createButton(buttonTitle) {
         const button =
-            $(`<button type='button' class='btn btn-default btn-block'>${buttonTitle}</button>`);
+            $(`<button type='button' class='btn btn-secondary btn-lg btn-block'>${buttonTitle}</button>`);
         return button;
     }
 
