@@ -7,7 +7,6 @@
         // Tell Tableau we'd like to initialize our extension
         tableau.extensions.initializeAsync().then(function() {
             showChooseSheetDialog();
-            initializeButtons();
         });
     });
 
@@ -25,129 +24,107 @@
         // The first step in choosing a sheet will be asking Tableau what sheets are available
         const worksheets = tableau.extensions.dashboardContent.dashboard.worksheets;
 
-        // Next, we loop through all of these worksheets and add buttons for each one
-        worksheets.forEach(function(worksheet) {
-            // Declare our new button which contains the sheet name
-            const button = createButton(worksheet.name);
+        var checkBoxes = [];
 
-            // Create an event handler for when this button is clicked
-            button.click(function() {
-                // Get the worksheet name and save it to settings.
-                filteredColumns = [];
-                const worksheetName = worksheet.name;
-                loadSelectedMarks(worksheetName);
-                $('#choose_sheet_dialog').modal('toggle')
-            });
+        worksheets.forEach(function(worksheet){
+            
+            const checkBox = createCheckBox(worksheet.name);
+            checkBoxes.push(checkBox);
+            
+            // Add checkboxes for the list of worksheets to choose from
+            $('#choose_sheets_checkboxes').append(checkBox.HTML);
+        })
+        
+        const saveButton = createButton("Save Sheets");
 
-            // Add our button to the list of worksheets to choose from
-            $('#choose_sheet_buttons').append(button);
-        });
+        $('#choose_sheets_checkboxes').append(saveButton);
 
-        // Show the dialog
-        $('#choose_sheet_dialog').modal('toggle');
+        saveButton.click(function(){
+
+            // Loop on worksheet checkboxes and get selected worksheets
+            var selectedSheets = []
+
+            checkBoxes.forEach(function(checkBox){
+                var sheetTitle = checkBox.title;
+                if (document.getElementById(sheetTitle + '_checkbox').checked == true){
+                    selectedSheets.push(sheetTitle);
+                };
+            })
+            // Load and export data for selected worksheets
+            loadSelectedMarks(selectedSheets);
+        })
     }
 
     function createButton(buttonTitle) {
         const button =
-            $(`<button type='button' class='btn btn-default btn-block'>
-      ${buttonTitle}
-    </button>`);
-
+            $(`<button type='button' class='btn btn-default btn-block'>${buttonTitle}</button>`);
         return button;
+    }
+
+    function createCheckBox(checkBoxTitle) {
+        const checkBoxHTML = $(`<input type="checkbox" id="${checkBoxTitle}_checkbox">
+        <label for="${checkBoxTitle}_checkbox">${checkBoxTitle}</label><br>`);
+        const checkBox = {'HTML': checkBoxHTML, 'title': checkBoxTitle};
+        return checkBox;
     }
 
     // This variable will save off the function we can call to unregister listening to marks-selected events
     let unregisterEventHandlerFunction;
-
-    function loadSelectedMarks(worksheetName) {
+    
+    function loadSelectedMarks(worksheetNames) {
         // Remove any existing event listeners
         if (unregisterEventHandlerFunction) {
             unregisterEventHandlerFunction();
         }
-
+        
         // Get the worksheet object we want to get the selected marks for
-        const worksheet = getSelectedSheet(worksheetName);
+        const worksheets = worksheetNames.map(function(worksheetName){
+            return getSelectedSheet(worksheetName);
+        });
 
         // Set our title to an appropriate value
-        $('#selected_marks_title').text(worksheet.name);
+        // $('#selected_marks_title').text(worksheet.name);
 
         // Call to get the selected marks for our sheet
-        worksheet.getSummaryDataAsync().then(function(sumdata) {
-            // Get the first DataTable for our selected marks (usually there is just one)
-            const worksheetData = sumdata;
+        var getSummaryDataPromises = worksheets.map(function(worksheet){
+            return worksheet.getSummaryDataAsync();
+        })
 
-            // Map our data into the format which the data table component expects it
-            const data = worksheetData.data.map(function(row, index) {
-                const rowData = row.map(function(cell) {
-                    return cell.formattedValue;
+        Promise.all(getSummaryDataPromises).then(function(sumDataArray){
+
+            var workbook = XLSX.utils.book_new();
+
+            sumDataArray.forEach(function(sumData, index) {
+                // Get the first DataTable for our selected marks (usually there is just one)
+                const worksheetData = sumData;
+                var worksheetName = worksheetNames[index];
+
+                // Map our data into the format which the data table component expects it
+                const data = worksheetData.data.map(function(row, index) {
+                    const rowData = row.map(function(cell) {
+                        return cell.formattedValue;
+                    });
+
+                    return rowData;
                 });
 
-                return rowData;
+                const columns = worksheetData.columns.map(function(column) {
+                    return {
+                        title: column.fieldName
+                    };
+                });
+
+                var excelSheet = createAndFillWorksheet(data, columns);
+
+                XLSX.utils.book_append_sheet(workbook, excelSheet, worksheetName);
             });
-
-            const columns = worksheetData.columns.map(function(column) {
-                return {
-                    title: column.fieldName
-                };
-            });
-
-            // Populate the data table with the rows and columns we just pulled out
-            populateDataTable(data, columns);
-
-            var workbook = createAndFillWorkbook(data, columns);
-
-            XLSX.writeFile(workbook, 'out1.xlsx');
-
+            
+            // Output the Excel workbook
+            XLSX.writeFile(workbook, 'output.xlsx');
         });
     }
 
-    function populateDataTable(data, columns) {
-        // Do some UI setup here: change the visible section and reinitialize the table
-        $('#data_table_wrapper').empty();
-
-        if (data.length > 0) {
-            $('#no_data_message').css('display', 'none');
-            $('#data_table_wrapper').append(`<table id='data_table' class='table table-striped table-bordered'></table>`);
-
-            // Do some math to compute the height we want the data table to be
-            var top = $('#data_table_wrapper')[0].getBoundingClientRect().top;
-            var height = $(document).height() - top - 130;
-
-            const headerCallback = function(thead, data) {
-                const headers = $(thead).find('th');
-                for (let i = 0; i < headers.length; i++) {
-                    const header = $(headers[i]);
-                    if (header.children().length === 0) {
-                        const fieldName = header.text();
-                        const button = $(`<a href='#'>${fieldName}</a>`);
-                        button.click(function() {
-                            filterByColumn(i, fieldName);
-                        });
-
-                        header.html(button);
-                    }
-                }
-            };
-
-            // Initialize our data table with what we just gathered
-            $('#data_table').DataTable({
-                data: data,
-                columns: columns,
-                autoWidth: false,
-                deferRender: true,
-                scroller: true,
-                scrollY: height,
-                scrollX: true,
-                headerCallback: headerCallback,
-                dom: "<'row'<'col-sm-6'i><'col-sm-6'f>><'row'<'col-sm-12'tr>>" // Do some custom styling
-            });
-        } else {
-            // If we didn't get any rows back, there must be no marks selected
-            $('#no_data_message').css('display', 'inline');
-        }
-    }
-
-    function createAndFillWorkbook(data, columns) {
+    function createAndFillWorksheet(data, columns) {
 
         var sheetData = [];
 
@@ -159,49 +136,14 @@
             sheetData.push(row);
         })
 
-        console.log(sheetData);
-        var workbook = XLSX.utils.book_new();
-        var worksheet_name = "SheetJS";
 
         var worksheet = XLSX.utils.aoa_to_sheet(sheetData);
 
-        XLSX.utils.book_append_sheet(workbook, worksheet, worksheet_name);
-
-        return workbook;
-    }
-
-    function initializeButtons() {
-        $('#show_choose_sheet_button').click(showChooseSheetDialog);
-        $('#reset_filters_button').click(resetFilters);
+        return worksheet;
     }
 
     // Save the columns we've applied filters to so we can reset them
     let filteredColumns = [];
-
-    function filterByColumn(columnIndex, fieldName) {
-        // Grab our column of data from the data table and filter out to just unique values
-        const dataTable = $('#data_table').DataTable({
-            retrieve: true
-        });
-        const column = dataTable.column(columnIndex);
-        const columnDomain = column.data().toArray().filter(function(value, index, self) {
-            return self.indexOf(value) === index;
-        });
-
-        const worksheet = getSelectedSheet(tableau.extensions.settings.get('sheet'));
-        worksheet.applyFilterAsync(fieldName, columnDomain, tableau.FilterUpdateType.Replace);
-        filteredColumns.push(fieldName);
-        return false;
-    }
-
-    function resetFilters() {
-        const worksheet = getSelectedSheet(tableau.extensions.settings.get('sheet'));
-        filteredColumns.forEach(function(columnName) {
-            worksheet.clearFilterAsync(columnName);
-        });
-
-        filteredColumns = [];
-    }
 
     function getSelectedSheet(worksheetName) {
         if (!worksheetName) {
